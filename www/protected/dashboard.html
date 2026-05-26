@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard (Protected)</title>
+  <style>
+    body   { font-family: sans-serif; max-width: 600px; margin: 80px auto; padding: 0 20px; }
+    h1     { font-size: 1.4rem; }
+    .badge { display: inline-block; background: #0a0; color: #fff; padding: 3px 10px; border-radius: 4px; font-size: .85rem; }
+    button {
+      margin-top: 24px; padding: 8px 20px;
+      background: #c00; color: #fff;
+      border: none; border-radius: 4px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Dashboard <span class="badge">Protected</span></h1>
+  <p>You have successfully accessed a protected resource.</p>
+  <p>This page is only reachable when nginx's <code>auth_request</code> to the
+     C++ backend returns <code>200 OK</code>.</p>
+  <button id="logout-btn">Logout</button>
+
+  <script>
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      window.location.href = '/';
+    });
+  </script>
+</body>
+</html>

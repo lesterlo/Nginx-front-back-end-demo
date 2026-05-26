@@ -1,0 +1,10 @@
+services:
+  poc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: nginx-beast-poc:latest
+    container_name: nginx-beast-poc
+    ports:
+      - "0.0.0.0:8080:80"   # change 8080 to any available host port
+    restart: unless-stopped
