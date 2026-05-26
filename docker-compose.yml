@@ -6,5 +6,6 @@ services:
     image: nginx-beast-poc:latest
     container_name: nginx-beast-poc
     ports:
-      - "0.0.0.0:8080:80"   # change 8080 to any available host port
+      - "0.0.0.0:8080:80"    # HTTP
+      - "0.0.0.0:8443:443"   # HTTPS (self-signed cert — browser will warn)
     restart: unless-stopped

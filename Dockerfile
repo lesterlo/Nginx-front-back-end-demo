@@ -25,8 +25,20 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
         nginx \
         libssl3 \
+        openssl \
     && rm -rf /var/lib/apt/lists/* \
     && rm -f /etc/nginx/sites-enabled/default
+
+# Self-signed TLS certificate (PoC only).
+# For the embedded target, replace server.crt / server.key with a real certificate
+# issued by your CA — the nginx.conf SSL directives stay identical.
+RUN mkdir -p /etc/nginx/ssl \
+    && openssl req -x509 -nodes -days 3650 \
+           -newkey rsa:2048 \
+           -keyout /etc/nginx/ssl/server.key \
+           -out    /etc/nginx/ssl/server.crt \
+           -subj   "/CN=localhost" \
+           -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
 
 COPY --from=builder /src/build/backend /usr/local/bin/backend
 RUN chmod 755 /usr/local/bin/backend
@@ -36,6 +48,6 @@ COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 80
+EXPOSE 80 443
 
 ENTRYPOINT ["/entrypoint.sh"]
