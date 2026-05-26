@@ -1,6 +1,6 @@
-name: LPC1
+name: Accuenergy-LPC1
 variables:
   - name: ipAddr
     value: 192.168.61.63
   - name: port
-    value: "8080"
+    value: "8443"

@@ -5,7 +5,7 @@ info:
 
 http:
   method: POST
-  url: http://{{ipAddr}}:{{port}}/api/login
+  url: https://{{ipAddr}}:{{port}}/api/login
   body:
     type: json
     data: |-

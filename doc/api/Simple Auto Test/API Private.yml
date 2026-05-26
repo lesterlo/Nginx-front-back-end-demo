@@ -5,7 +5,7 @@ info:
 
 http:
   method: GET
-  url: http://{{ipAddr}}:{{port}}/api/private
+  url: https://{{ipAddr}}:{{port}}/api/private
   auth: inherit
 
 settings:
