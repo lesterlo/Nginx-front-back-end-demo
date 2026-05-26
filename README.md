@@ -7,3 +7,12 @@
 ```bash
 docker compose up --build
 ```
+
+
+# How to login
+
+```
+admin / admin123 
+or 
+alice / user123
+```
