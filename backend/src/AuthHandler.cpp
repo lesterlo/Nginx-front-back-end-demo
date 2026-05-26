@@ -76,3 +76,25 @@ AuthHandler::handle_check(const http::request<http::string_body>& req)
 
     return make_status_response(http::status::ok);
 }
+
+std::optional<TokenEntry>
+AuthHandler::get_token_entry(const http::request<http::string_body>& req) const
+{
+    std::string token;
+
+    auto cookie_it = req.find(http::field::cookie);
+    if (cookie_it != req.end())
+        token = extract_cookie(cookie_it->value(), "session");
+
+    if (token.empty()) {
+        auto auth_it = req.find(http::field::authorization);
+        if (auth_it != req.end()) {
+            auto hv = auth_it->value();
+            if (hv.size() >= 7 && hv.substr(0, 7) == "Bearer ")
+                token = std::string(hv.data() + 7, hv.size() - 7);
+        }
+    }
+
+    if (token.empty()) return std::nullopt;
+    return tokens_.validate(token);
+}

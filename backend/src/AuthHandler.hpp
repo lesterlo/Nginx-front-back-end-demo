@@ -24,6 +24,12 @@ public:
     http::response<http::string_body>
     handle_check(const http::request<http::string_body>& req);
 
+    // Extracts and validates the session token from the request (cookie or
+    // Authorization: Bearer header). Returns nullopt if missing or expired.
+    // Used by API routes that enforce auth themselves instead of via nginx.
+    std::optional<TokenEntry>
+    get_token_entry(const http::request<http::string_body>& req) const;
+
 private:
     AclStore&    acl_;
     TokenStore&  tokens_;
