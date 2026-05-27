@@ -1,12 +1,15 @@
 #pragma once
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include <openssl/sha.h>
+#include <openssl/crypto.h>
+#include <openssl/evp.h>
+#include <openssl/rand.h>
 
 enum class Role { Guest = 0, Viewer = 1, User = 2, Admin = 3 };
 
@@ -28,7 +31,7 @@ inline bool role_from_string(const std::string& s, Role& out) {
 }
 
 struct UserRecord {
-    std::string password_hash;
+    std::string password_hash; // "iterations:salt_hex:key_hex"
     Role        role;
 };
 
@@ -41,6 +44,7 @@ class AclStore {
 public:
     AclStore() {
         // Seed users — replace with config-file load for production.
+        // Store pre-computed hashes to avoid running PBKDF2 on every startup.
         add_user("admin",  "admin123",  Role::Admin);
         add_user("alice",  "user123",   Role::User);
         add_user("viewer", "viewer123", Role::Viewer);
@@ -55,11 +59,21 @@ public:
                       const std::string& password,
                       Role& out_role) const
     {
-        std::shared_lock lock(mutex_);
-        auto it = users_.find(username);
-        if (it == users_.end()) return false;
-        if (it->second.password_hash != sha256(password)) return false;
-        out_role = it->second.role;
+        // Fetch stored hash under lock, then verify outside it.
+        // PBKDF2 is intentionally slow — holding the lock during it would
+        // block every other request on this store.
+        std::string stored_hash;
+        Role role;
+        {
+            std::shared_lock lock(mutex_);
+            auto it = users_.find(username);
+            if (it == users_.end()) return false;
+            stored_hash = it->second.password_hash;
+            role        = it->second.role;
+        }
+
+        if (!pbkdf2_verify(password, stored_hash)) return false;
+        out_role = role;
         return true;
     }
 
@@ -100,9 +114,11 @@ public:
 
     // ── User management ───────────────────────────────────────────────────────
 
+    // Hash is computed outside the lock — PBKDF2 is intentionally slow.
     void add_user(const std::string& username, const std::string& password, Role role) {
+        std::string hash = pbkdf2_hash(password);
         std::unique_lock lock(mutex_);
-        users_[username] = {sha256(password), role};
+        users_[username] = {std::move(hash), role};
     }
 
     bool remove_user(const std::string& username) {
@@ -118,7 +134,7 @@ public:
         return true;
     }
 
-    // Returns username → role pairs (no passwords).
+    // Returns username → role pairs (no password hashes).
     std::unordered_map<std::string, Role> list_users() const {
         std::shared_lock lock(mutex_);
         std::unordered_map<std::string, Role> result;
@@ -128,14 +144,64 @@ public:
     }
 
 private:
-    static std::string sha256(const std::string& input) {
-        unsigned char hash[SHA256_DIGEST_LENGTH];
-        SHA256(reinterpret_cast<const unsigned char*>(input.data()),
-               input.size(), hash);
-        char hex[SHA256_DIGEST_LENGTH * 2 + 1];
-        for (int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-            snprintf(hex + i * 2, 3, "%02x", hash[i]);
-        return {hex, SHA256_DIGEST_LENGTH * 2};
+    static constexpr int ITERATIONS = 200'000;
+    static constexpr int SALT_LEN   = 16;
+    static constexpr int KEY_LEN    = 32;
+
+    static std::string to_hex(const unsigned char* data, int len) {
+        std::string out(len * 2, '\0');
+        for (int i = 0; i < len; ++i)
+            snprintf(&out[i * 2], 3, "%02x", data[i]);
+        return out;
+    }
+
+    static std::vector<unsigned char> from_hex(const std::string& hex) {
+        std::vector<unsigned char> out(hex.size() / 2);
+        for (size_t i = 0; i < out.size(); ++i) {
+            unsigned int b = 0;
+            sscanf(hex.c_str() + i * 2, "%02x", &b);
+            out[i] = static_cast<unsigned char>(b);
+        }
+        return out;
+    }
+
+    // Returns "iterations:salt_hex:key_hex"
+    static std::string pbkdf2_hash(const std::string& password) {
+        unsigned char salt[SALT_LEN];
+        RAND_bytes(salt, SALT_LEN);
+
+        unsigned char key[KEY_LEN];
+        PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
+                          salt, SALT_LEN, ITERATIONS, EVP_sha256(),
+                          KEY_LEN, key);
+
+        return std::to_string(ITERATIONS)
+             + ":" + to_hex(salt, SALT_LEN)
+             + ":" + to_hex(key,  KEY_LEN);
+    }
+
+    // Verifies password against "iterations:salt_hex:key_hex".
+    // Uses CRYPTO_memcmp to prevent timing-based attacks.
+    static bool pbkdf2_verify(const std::string& password, const std::string& stored) {
+        auto p1 = stored.find(':');
+        auto p2 = stored.find(':', p1 + 1);
+        if (p1 == std::string::npos || p2 == std::string::npos) return false;
+
+        int iterations;
+        try { iterations = std::stoi(stored.substr(0, p1)); }
+        catch (...) { return false; }
+
+        auto salt     = from_hex(stored.substr(p1 + 1, p2 - p1 - 1));
+        auto expected = from_hex(stored.substr(p2 + 1));
+        if (expected.size() != KEY_LEN) return false;
+
+        unsigned char computed[KEY_LEN];
+        PKCS5_PBKDF2_HMAC(password.data(), static_cast<int>(password.size()),
+                          salt.data(), static_cast<int>(salt.size()),
+                          iterations, EVP_sha256(),
+                          KEY_LEN, computed);
+
+        return CRYPTO_memcmp(computed, expected.data(), KEY_LEN) == 0;
     }
 
     std::unordered_map<std::string, UserRecord> users_;
