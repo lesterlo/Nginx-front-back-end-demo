@@ -1,4 +1,5 @@
 #include "AuthHandler.hpp"
+#include "AclStore.hpp"
 
 // All header field values from Boost 1.74 Beast are boost::beast::string_view,
 // not std::string_view — no implicit conversion exists between the two.
@@ -74,7 +75,10 @@ AuthHandler::handle_check(const http::request<http::string_body>& req)
             return make_status_response(http::status::forbidden);
     }
 
-    return make_status_response(http::status::ok);
+    auto res = make_status_response(http::status::ok);
+    res.set("X-User", entry->username);
+    res.set("X-Role", role_name(entry->role));
+    return res;
 }
 
 std::optional<TokenEntry>
