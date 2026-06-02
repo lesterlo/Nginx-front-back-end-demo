@@ -1,0 +1,6 @@
+name: LPC1-Lighttpd-webengine
+variables:
+  - name: ipAddr
+    value: 192.168.61.63
+  - name: port
+    value: "9443"
