@@ -19,7 +19,7 @@
 </head>
 <body>
   <h1>Dashboard <span class="badge">Protected</span></h1>
-  <p>You have accessed a protected resource gated by nginx <code>auth_request</code>.</p>
+  <p id="gating">You have accessed a protected resource.</p>
 
   <!-- ── Public API ── -->
   <h2>Public API <small style="color:#888">(no auth needed)</small></h2>
@@ -35,6 +35,23 @@
   <button class="danger" id="btn-logout">Logout</button>
 
   <script>
+    // Describe how THIS request was gated, based on the reverse proxy in front:
+    //   nginx    — gated by nginx's auth_request sub-request to /auth-check
+    //   lighttpd — gated by the backend itself (lighttpd has no auth_request, so it
+    //              proxies /protected/ to the backend, which gates AND serves it)
+    fetch('/api/server')
+      .then(r => r.json())
+      .then(d => {
+        const p = document.getElementById('gating');
+        if (d.server === 'lighttpd')
+          p.innerHTML = 'You have accessed a protected resource gated by the <strong>backend</strong> '
+                      + '(lighttpd proxies <code>/protected/</code> to it — lighttpd has no <code>auth_request</code>).';
+        else
+          p.innerHTML = 'You have accessed a protected resource gated by <strong>nginx</strong> <code>auth_request</code>.';
+        document.title = (d.server === 'lighttpd' ? 'lighttpd' : 'Nginx') + ' — Dashboard (Protected)';
+      })
+      .catch(() => {});
+
     async function call(url, outId) {
       const out = document.getElementById(outId);
       try {
