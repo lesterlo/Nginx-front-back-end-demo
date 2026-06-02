@@ -1,11 +1,11 @@
 info:
-  name: Static File Private
+  name: API-Private-user
   type: http
-  seq: 5
+  seq: 3
 
 http:
   method: GET
-  url: https://{{ipAddr}}:{{port}}/protected/hello.txt
+  url: https://{{ipAddr}}:{{port}}/api/user
   auth: inherit
 
 settings:
