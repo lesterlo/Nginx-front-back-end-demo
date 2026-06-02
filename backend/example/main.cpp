@@ -138,6 +138,30 @@ int main()
                 R"(","role":")" + std::string(role_name(u.role)) + R"("})");
         }, Role::Admin);
 
+        // ── Role-tiered test endpoints ────────────────────────────────────────
+        // One endpoint per role level so each account can be exercised. The router
+        // enforces the minimum role automatically: a caller below it gets 403
+        // ("insufficient permissions"); an unauthenticated caller gets 401. On
+        // success the body echoes the required level and the caller's own role.
+        //   GET /api/public  none    → everyone (no login)
+        //   GET /api/viewer  Viewer  → viewer, alice, admin : 200
+        //   GET /api/user    User    → alice, admin : 200   | viewer : 403
+        //   GET /api/admin   Admin   → admin : 200           | alice, viewer : 403
+        // (roles are ordered guest < viewer < user < admin, so a higher role
+        //  satisfies any lower requirement.)
+        auto tiered = [](const char* level) {
+            return [level](const RequestContext& ctx) {
+                const UserInfo& u = *ctx.user;   // present: these routes require a role
+                return json(http::status::ok,
+                    std::string(R"({"message":")") + level + R"( access granted","required":")"
+                    + level + R"(","user":")" + u.username
+                    + R"(","role":")" + role_name(u.role) + R"("})");
+            };
+        };
+        engine.add_api(http::verb::get, "/api/viewer", tiered("viewer"), Role::Viewer);
+        engine.add_api(http::verb::get, "/api/user",   tiered("user"),   Role::User);
+        engine.add_api(http::verb::get, "/api/admin",  tiered("admin"),  Role::Admin);
+
         // Admin-only management endpoints for users and protected paths.
         engine.enable_admin_endpoints();
 

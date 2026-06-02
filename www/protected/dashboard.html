@@ -26,10 +26,17 @@
   <button id="btn-public">GET /api/public</button>
   <pre id="out-public">—</pre>
 
-  <!-- ── Private API ── -->
-  <h2>Private API <small style="color:#888">(auth enforced by backend)</small></h2>
-  <button id="btn-private">GET /api/private</button>
-  <pre id="out-private">—</pre>
+  <!-- ── Role-tiered APIs ── -->
+  <h2>Role-tiered APIs <small style="color:#888">(min role enforced by the backend)</small></h2>
+  <p style="font-size:.85rem;color:#666;margin:.2rem 0 .7rem">
+    Your role decides which succeed (<strong>200</strong>) vs. are denied (<strong>403</strong>).
+    Ordering: <code>viewer &lt; user &lt; admin</code>. Logged in as
+    <strong id="whoami">…</strong>.
+  </p>
+  <button id="btn-viewer">GET /api/viewer</button>
+  <button id="btn-user">GET /api/user</button>
+  <button id="btn-admin">GET /api/admin</button>
+  <pre id="out-tier">—</pre>
 
   <h2></h2>
   <button class="danger" id="btn-logout">Logout</button>
@@ -60,8 +67,16 @@
       } catch (e) { out.textContent = 'Error: ' + e.message; }
     }
 
-    document.getElementById('btn-public') .addEventListener('click', () => call('/api/public',  'out-public'));
-    document.getElementById('btn-private').addEventListener('click', () => call('/api/private', 'out-private'));
+    document.getElementById('btn-public').addEventListener('click', () => call('/api/public', 'out-public'));
+    document.getElementById('btn-viewer').addEventListener('click', () => call('/api/viewer', 'out-tier'));
+    document.getElementById('btn-user')  .addEventListener('click', () => call('/api/user',   'out-tier'));
+    document.getElementById('btn-admin') .addEventListener('click', () => call('/api/admin',  'out-tier'));
+
+    // Show which account we're logged in as (any authenticated user may call /api/viewer).
+    fetch('/api/viewer', { credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) document.getElementById('whoami').textContent = d.user + ' (' + d.role + ')'; })
+      .catch(() => {});
 
     document.getElementById('btn-logout').addEventListener('click', async () => {
       await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
