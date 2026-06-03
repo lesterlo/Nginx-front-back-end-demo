@@ -1,5 +1,6 @@
 #include "Router.hpp"
 #include "util.hpp"
+#include "webengine/Json.hpp"
 
 namespace webengine {
 
@@ -76,11 +77,9 @@ Response Router::dispatch(const Request& req) const
     if (min_role) {
         auto entry = validated_token(req, tokens_);
         if (!entry)
-            return json(http::status::unauthorized,
-                        R"({"error":"authentication required"})");
+            return json_error(http::status::unauthorized, "authentication required");
         if (!role_satisfies(entry->role, *min_role))
-            return json(http::status::forbidden,
-                        R"({"error":"insufficient permissions"})");
+            return json_error(http::status::forbidden, "insufficient permissions");
         ctx.user = UserInfo{entry->username, entry->role};
     }
 
@@ -90,8 +89,7 @@ Response Router::dispatch(const Request& req) const
     try {
         return handler(ctx);
     } catch (...) {
-        return json(http::status::internal_server_error,
-                    R"({"error":"internal server error"})");
+        return json_error(http::status::internal_server_error, "internal server error");
     }
 }
 

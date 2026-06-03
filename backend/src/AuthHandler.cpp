@@ -1,5 +1,6 @@
 #include "AuthHandler.hpp"
 #include "util.hpp"
+#include "webengine/Json.hpp"
 
 #include <fstream>
 #include <sstream>
@@ -7,6 +8,9 @@
 namespace webengine {
 
 namespace {
+
+// Login request body: {"username": ..., "password": ...}.
+struct LoginReq { std::optional<std::string> username; std::optional<std::string> password; };
 
 // Minimal extension → MIME map for the static files this PoC serves. Unknown
 // extensions fall back to a safe binary default.
@@ -29,17 +33,17 @@ std::string content_type_for(const std::string& path) {
 
 Response AuthHandler::handle_login(const Request& req)
 {
-    const std::string& body = req.body();
-    std::string username = json_field(body, "username");
-    std::string password = json_field(body, "password");
+    auto body = parse_json<LoginReq>(req.body());
+    const std::string username = body && body->username ? *body->username : std::string{};
+    const std::string password = body && body->password ? *body->password : std::string{};
 
     std::optional<Role> role;
     if (username.empty() || !(role = auth_.authenticate(username, password)))
-        return json(http::status::unauthorized, R"({"error":"invalid credentials"})");
+        return json_error(http::status::unauthorized, "invalid credentials");
 
     std::string token = tokens_.issue(username, *role);
 
-    auto res = json(http::status::ok, R"({"status":"ok"})");
+    auto res = json_status_ok();
     res.set(http::field::set_cookie,
             "session=" + token + "; HttpOnly; SameSite=Strict; Path=/");
     return res;
@@ -54,7 +58,7 @@ Response AuthHandler::handle_logout(const Request& req)
             tokens_.revoke(token);
     }
 
-    auto res = json(http::status::ok, R"({"status":"ok"})");
+    auto res = json_status_ok();
     res.set(http::field::set_cookie,
             "session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return res;

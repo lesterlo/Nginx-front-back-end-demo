@@ -16,30 +16,47 @@
 #include "Listener.hpp"
 #include "Router.hpp"
 #include "TokenStore.hpp"
+#include "webengine/Json.hpp"
 
 namespace webengine {
 
-// ── JSON serialisation for the admin endpoints ─────────────────────────────────
+// ── JSON DTOs for the admin endpoints ──────────────────────────────────────────
+// glaze serialises/parses these by reflection (field name == JSON key). Roles are
+// carried as their wire string (role_name) so the JSON contract is unchanged.
+namespace {
 
-static std::string acl_entries_json(const std::vector<AclEntry>& entries) {
-    std::string out = R"({"entries":[)";
-    for (size_t i = 0; i < entries.size(); ++i) {
-        if (i) out += ',';
-        out += R"({"prefix":")" + entries[i].path_prefix
-             + R"(","min_role":")" + role_name(entries[i].min_role) + R"("})";
-    }
-    return out + "]}";
+// Response shapes.
+struct AclEntryView { std::string prefix;   std::string min_role; };
+struct AclListView  { std::vector<AclEntryView> entries; };
+struct UserView     { std::string username; std::string role; };
+struct UserListView { std::vector<UserView> users; };
+
+// Request bodies. Optional fields let us report "required: ..." for absent keys
+// and 400 for malformed JSON — exactly as the old hand parser did.
+struct AclSetReq   { std::optional<std::string> prefix; std::optional<std::string> role; };
+struct PrefixReq   { std::optional<std::string> prefix; };
+struct AddUserReq  { std::optional<std::string> username; std::optional<std::string> password;
+                     std::optional<std::string> role; };
+struct UsernameReq { std::optional<std::string> username; };
+struct SetRoleReq  { std::optional<std::string> username; std::optional<std::string> role; };
+
+AclListView to_view(const std::vector<AclEntry>& entries) {
+    AclListView v;
+    v.entries.reserve(entries.size());
+    for (const auto& e : entries)
+        v.entries.push_back({e.path_prefix, role_name(e.min_role)});
+    return v;
 }
 
-static std::string users_json(const std::vector<UserInfo>& users) {
-    std::string out = R"({"users":[)";
-    for (size_t i = 0; i < users.size(); ++i) {
-        if (i) out += ',';
-        out += R"({"username":")" + users[i].username
-             + R"(","role":")" + role_name(users[i].role) + R"("})";
-    }
-    return out + "]}";
+UserListView to_view(const std::vector<UserInfo>& users) {
+    UserListView v;
+    v.users.reserve(users.size());
+    for (const auto& u : users)
+        v.users.push_back({u.username, role_name(u.role)});
+    return v;
 }
+
+} // namespace
 
 // ── Engine internals (hidden behind the PIMPL) ─────────────────────────────────
 
@@ -147,73 +164,70 @@ WebEngine& WebEngine::enable_admin_endpoints()
 
     // ── ACL management: GET/POST/DELETE /api/admin/acl ──────────────────────────
     add_api(http::verb::get, "/api/admin/acl", [acl](const RequestContext&) {
-        return json(http::status::ok, acl_entries_json(acl->list()));
+        return json_ok(to_view(acl->list()));
     }, Role::Admin);
 
     add_api(http::verb::post, "/api/admin/acl", [acl](const RequestContext& ctx) {
-        std::string prefix   = json_field(ctx.request.body(), "prefix");
-        std::string role_str = json_field(ctx.request.body(), "role");
+        auto req = parse_json<AclSetReq>(ctx.request.body());
         Role min_role;
-        if (prefix.empty() || !role_from_string(role_str, min_role))
-            return json(http::status::bad_request,
-                R"J({"error":"required: prefix (string), role (admin|user|viewer|guest)"})J");
-        acl->set(prefix, min_role);
-        return json(http::status::ok, R"({"status":"ok"})");
+        if (!req || !req->prefix || req->prefix->empty()
+                 || !req->role || !role_from_string(*req->role, min_role))
+            return json_error(http::status::bad_request,
+                "required: prefix (string), role (admin|user|viewer|guest)");
+        acl->set(*req->prefix, min_role);
+        return json_status_ok();
     }, Role::Admin);
 
     add_api(http::verb::delete_, "/api/admin/acl", [acl](const RequestContext& ctx) {
-        std::string prefix = json_field(ctx.request.body(), "prefix");
-        if (prefix.empty())
-            return json(http::status::bad_request, R"J({"error":"required: prefix (string)"})J");
-        acl->remove(prefix);
-        return json(http::status::ok, R"({"status":"ok"})");
+        auto req = parse_json<PrefixReq>(ctx.request.body());
+        if (!req || !req->prefix || req->prefix->empty())
+            return json_error(http::status::bad_request, "required: prefix (string)");
+        acl->remove(*req->prefix);
+        return json_status_ok();
     }, Role::Admin);
 
     // ── User management: GET/POST/DELETE/PATCH /api/admin/users ─────────────────
     add_api(http::verb::get, "/api/admin/users", [auth](const RequestContext&) {
-        return json(http::status::ok, users_json(auth->list_users()));
+        return json_ok(to_view(auth->list_users()));
     }, Role::Admin);
 
     add_api(http::verb::post, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json(http::status::not_implemented,
-                R"({"error":"auth provider is read-only"})");
-        std::string username = json_field(ctx.request.body(), "username");
-        std::string password = json_field(ctx.request.body(), "password");
-        std::string role_str = json_field(ctx.request.body(), "role");
+            return json_error(http::status::not_implemented, "auth provider is read-only");
+        auto req = parse_json<AddUserReq>(ctx.request.body());
         Role role;
-        if (username.empty() || password.empty() || !role_from_string(role_str, role))
-            return json(http::status::bad_request,
-                R"J({"error":"required: username, password, role (admin|user|viewer|guest)"})J");
-        auth->add_user(username, password, role);
-        return json(http::status::ok, R"({"status":"ok"})");
+        if (!req || !req->username || req->username->empty()
+                 || !req->password || req->password->empty()
+                 || !req->role || !role_from_string(*req->role, role))
+            return json_error(http::status::bad_request,
+                "required: username, password, role (admin|user|viewer|guest)");
+        auth->add_user(*req->username, *req->password, role);
+        return json_status_ok();
     }, Role::Admin);
 
     add_api(http::verb::delete_, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json(http::status::not_implemented,
-                R"({"error":"auth provider is read-only"})");
-        std::string username = json_field(ctx.request.body(), "username");
-        if (username.empty())
-            return json(http::status::bad_request, R"J({"error":"required: username (string)"})J");
-        if (!auth->remove_user(username))
-            return json(http::status::not_found, R"({"error":"user not found"})");
-        return json(http::status::ok, R"({"status":"ok"})");
+            return json_error(http::status::not_implemented, "auth provider is read-only");
+        auto req = parse_json<UsernameReq>(ctx.request.body());
+        if (!req || !req->username || req->username->empty())
+            return json_error(http::status::bad_request, "required: username (string)");
+        if (!auth->remove_user(*req->username))
+            return json_error(http::status::not_found, "user not found");
+        return json_status_ok();
     }, Role::Admin);
 
     add_api(http::verb::patch, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json(http::status::not_implemented,
-                R"({"error":"auth provider is read-only"})");
-        std::string username = json_field(ctx.request.body(), "username");
-        std::string role_str = json_field(ctx.request.body(), "role");
+            return json_error(http::status::not_implemented, "auth provider is read-only");
+        auto req = parse_json<SetRoleReq>(ctx.request.body());
         Role role;
-        if (username.empty() || !role_from_string(role_str, role))
-            return json(http::status::bad_request,
-                R"J({"error":"required: username, role (admin|user|viewer|guest)"})J");
-        if (!auth->set_user_role(username, role))
-            return json(http::status::not_found, R"({"error":"user not found"})");
-        return json(http::status::ok, R"({"status":"ok"})");
+        if (!req || !req->username || req->username->empty()
+                 || !req->role || !role_from_string(*req->role, role))
+            return json_error(http::status::bad_request,
+                "required: username, role (admin|user|viewer|guest)");
+        if (!auth->set_user_role(*req->username, role))
+            return json_error(http::status::not_found, "user not found");
+        return json_status_ok();
     }, Role::Admin);
 
     return *this;
