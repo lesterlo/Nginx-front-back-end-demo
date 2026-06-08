@@ -55,6 +55,7 @@ inline Response status_response(http::status status) {
     return res;
 }
 
-// JSON request parsing/serialisation lives in Json.hpp (glaze-backed).
+// JSON bodies are (de)serialised with glaze directly in the handlers
+// (glz::read / glz::write_json); json() above just wraps the result in a Response.
 
 } // namespace webengine

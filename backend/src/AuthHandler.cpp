@@ -1,9 +1,11 @@
 #include "AuthHandler.hpp"
 #include "util.hpp"
-#include "webengine/Json.hpp"
 
 #include <fstream>
+#include <optional>
 #include <sstream>
+
+#include <glaze/glaze.hpp>
 
 namespace webengine {
 
@@ -33,17 +35,21 @@ std::string content_type_for(const std::string& path) {
 
 Response AuthHandler::handle_login(const Request& req)
 {
-    auto body = parse_json<LoginReq>(req.body());
-    const std::string username = body && body->username ? *body->username : std::string{};
-    const std::string password = body && body->password ? *body->password : std::string{};
+    LoginReq body{};
+    // Tolerate missing/garbage bodies: on a parse error the fields stay empty and
+    // the credential check below fails with 401, as before.
+    (void) glz::read<glz::opts{.error_on_unknown_keys = false}>(body, req.body());
+    const std::string username = body.username ? *body.username : std::string{};
+    const std::string password = body.password ? *body.password : std::string{};
 
     std::optional<Role> role;
     if (username.empty() || !(role = auth_.authenticate(username, password)))
-        return json_error(http::status::unauthorized, "invalid credentials");
+        return json(http::status::unauthorized,
+            glz::write_json(glz::obj{"error", "invalid credentials"}).value_or(std::string{}));
 
     std::string token = tokens_.issue(username, *role);
 
-    auto res = json_status_ok();
+    auto res = json(http::status::ok, R"({"status":"ok"})");
     res.set(http::field::set_cookie,
             "session=" + token + "; HttpOnly; SameSite=Strict; Path=/");
     return res;
@@ -58,7 +64,7 @@ Response AuthHandler::handle_logout(const Request& req)
             tokens_.revoke(token);
     }
 
-    auto res = json_status_ok();
+    auto res = json(http::status::ok, R"({"status":"ok"})");
     res.set(http::field::set_cookie,
             "session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
     return res;

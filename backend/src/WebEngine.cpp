@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <csignal>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <vector>
 
 #include <boost/asio/signal_set.hpp>
+#include <glaze/glaze.hpp>
 
 #include <unistd.h>          // ::unlink
 
@@ -16,7 +18,6 @@
 #include "Listener.hpp"
 #include "Router.hpp"
 #include "TokenStore.hpp"
-#include "webengine/Json.hpp"
 
 namespace webengine {
 
@@ -164,70 +165,82 @@ WebEngine& WebEngine::enable_admin_endpoints()
 
     // ── ACL management: GET/POST/DELETE /api/admin/acl ──────────────────────────
     add_api(http::verb::get, "/api/admin/acl", [acl](const RequestContext&) {
-        return json_ok(to_view(acl->list()));
+        return json(http::status::ok, glz::write_json(to_view(acl->list())).value_or(std::string{}));
     }, Role::Admin);
 
     add_api(http::verb::post, "/api/admin/acl", [acl](const RequestContext& ctx) {
-        auto req = parse_json<AclSetReq>(ctx.request.body());
+        AclSetReq req{};
         Role min_role;
-        if (!req || !req->prefix || req->prefix->empty()
-                 || !req->role || !role_from_string(*req->role, min_role))
-            return json_error(http::status::bad_request,
-                "required: prefix (string), role (admin|user|viewer|guest)");
-        acl->set(*req->prefix, min_role);
-        return json_status_ok();
+        if (glz::read<glz::opts{.error_on_unknown_keys = false}>(req, ctx.request.body())
+                 || !req.prefix || req.prefix->empty()
+                 || !req.role || !role_from_string(*req.role, min_role))
+            return json(http::status::bad_request, glz::write_json(glz::obj{"error",
+                "required: prefix (string), role (admin|user|viewer|guest)"}).value_or(std::string{}));
+        acl->set(*req.prefix, min_role);
+        return json(http::status::ok, R"({"status":"ok"})");
     }, Role::Admin);
 
     add_api(http::verb::delete_, "/api/admin/acl", [acl](const RequestContext& ctx) {
-        auto req = parse_json<PrefixReq>(ctx.request.body());
-        if (!req || !req->prefix || req->prefix->empty())
-            return json_error(http::status::bad_request, "required: prefix (string)");
-        acl->remove(*req->prefix);
-        return json_status_ok();
+        PrefixReq req{};
+        if (glz::read<glz::opts{.error_on_unknown_keys = false}>(req, ctx.request.body())
+                 || !req.prefix || req.prefix->empty())
+            return json(http::status::bad_request,
+                glz::write_json(glz::obj{"error", "required: prefix (string)"}).value_or(std::string{}));
+        acl->remove(*req.prefix);
+        return json(http::status::ok, R"({"status":"ok"})");
     }, Role::Admin);
 
     // ── User management: GET/POST/DELETE/PATCH /api/admin/users ─────────────────
     add_api(http::verb::get, "/api/admin/users", [auth](const RequestContext&) {
-        return json_ok(to_view(auth->list_users()));
+        return json(http::status::ok, glz::write_json(to_view(auth->list_users())).value_or(std::string{}));
     }, Role::Admin);
 
     add_api(http::verb::post, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json_error(http::status::not_implemented, "auth provider is read-only");
-        auto req = parse_json<AddUserReq>(ctx.request.body());
+            return json(http::status::not_implemented,
+                glz::write_json(glz::obj{"error", "auth provider is read-only"}).value_or(std::string{}));
+        AddUserReq req{};
         Role role;
-        if (!req || !req->username || req->username->empty()
-                 || !req->password || req->password->empty()
-                 || !req->role || !role_from_string(*req->role, role))
-            return json_error(http::status::bad_request,
-                "required: username, password, role (admin|user|viewer|guest)");
-        auth->add_user(*req->username, *req->password, role);
-        return json_status_ok();
+        if (glz::read<glz::opts{.error_on_unknown_keys = false}>(req, ctx.request.body())
+                 || !req.username || req.username->empty()
+                 || !req.password || req.password->empty()
+                 || !req.role || !role_from_string(*req.role, role))
+            return json(http::status::bad_request, glz::write_json(glz::obj{"error",
+                "required: username, password, role (admin|user|viewer|guest)"}).value_or(std::string{}));
+        auth->add_user(*req.username, *req.password, role);
+        return json(http::status::ok, R"({"status":"ok"})");
     }, Role::Admin);
 
     add_api(http::verb::delete_, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json_error(http::status::not_implemented, "auth provider is read-only");
-        auto req = parse_json<UsernameReq>(ctx.request.body());
-        if (!req || !req->username || req->username->empty())
-            return json_error(http::status::bad_request, "required: username (string)");
-        if (!auth->remove_user(*req->username))
-            return json_error(http::status::not_found, "user not found");
-        return json_status_ok();
+            return json(http::status::not_implemented,
+                glz::write_json(glz::obj{"error", "auth provider is read-only"}).value_or(std::string{}));
+        UsernameReq req{};
+        if (glz::read<glz::opts{.error_on_unknown_keys = false}>(req, ctx.request.body())
+                 || !req.username || req.username->empty())
+            return json(http::status::bad_request,
+                glz::write_json(glz::obj{"error", "required: username (string)"}).value_or(std::string{}));
+        if (!auth->remove_user(*req.username))
+            return json(http::status::not_found,
+                glz::write_json(glz::obj{"error", "user not found"}).value_or(std::string{}));
+        return json(http::status::ok, R"({"status":"ok"})");
     }, Role::Admin);
 
     add_api(http::verb::patch, "/api/admin/users", [auth](const RequestContext& ctx) {
         if (!auth->supports_management())
-            return json_error(http::status::not_implemented, "auth provider is read-only");
-        auto req = parse_json<SetRoleReq>(ctx.request.body());
+            return json(http::status::not_implemented,
+                glz::write_json(glz::obj{"error", "auth provider is read-only"}).value_or(std::string{}));
+        SetRoleReq req{};
         Role role;
-        if (!req || !req->username || req->username->empty()
-                 || !req->role || !role_from_string(*req->role, role))
-            return json_error(http::status::bad_request,
-                "required: username, role (admin|user|viewer|guest)");
-        if (!auth->set_user_role(*req->username, role))
-            return json_error(http::status::not_found, "user not found");
-        return json_status_ok();
+        if (glz::read<glz::opts{.error_on_unknown_keys = false}>(req, ctx.request.body())
+                 || !req.username || req.username->empty()
+                 || !req.role || !role_from_string(*req.role, role))
+            return json(http::status::bad_request, glz::write_json(glz::obj{"error",
+                "required: username, role (admin|user|viewer|guest)"}).value_or(std::string{}));
+        if (!auth->set_user_role(*req.username, role))
+            return json(http::status::not_found,
+                glz::write_json(glz::obj{"error", "user not found"}).value_or(std::string{}));
+        return json(http::status::ok, R"({"status":"ok"})");
     }, Role::Admin);
 
     return *this;

@@ -49,8 +49,10 @@ target_link_libraries(webengine PUBLIC
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads
-    glaze::glaze      # PUBLIC: include/webengine/Json.hpp exposes glaze to consumers
 )
+# glaze is used only inside the library's .cpp files (no public header exposes it),
+# so it's a private build-time dependency.
+target_link_libraries(webengine PRIVATE glaze::glaze)
 
 # ── Example application that consumes the library ─────────────────────────────
 # Named `backend` and emitted at the build root so the existing Docker/systemd
@@ -58,4 +60,5 @@ target_link_libraries(webengine PUBLIC
 add_executable(backend example/main.cpp)
 set_target_properties(backend PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-target_link_libraries(backend PRIVATE webengine)
+# main.cpp now calls glaze directly, so link it here too (webengine keeps glaze private).
+target_link_libraries(backend PRIVATE webengine glaze::glaze)
