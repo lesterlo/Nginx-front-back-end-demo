@@ -1,11 +1,11 @@
 info:
-  name: Static File Private
+  name: API-Private-admin
   type: http
-  seq: 5
+  seq: 2
 
 http:
   method: GET
-  url: https://{{ipAddr}}:{{port}}/protected/hello.txt
+  url: https://{{ipAddr}}:{{port}}/api/admin
   auth: inherit
 
 settings:
