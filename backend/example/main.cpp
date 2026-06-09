@@ -115,6 +115,14 @@ int main()
             return json(http::status::ok, glz::write_json(glz::obj{"server", server}).value_or(std::string{}));
         });
 
+        // Public: which reverse proxy is in front. Lets the static frontend label
+        // itself (e.g. "lighttpd + Beast PoC") without needing to log in — unlike
+        // the Admin-only /api/admin/server/status. Returns {"server":"nginx"|"lighttpd"}.
+        engine.add_api(http::verb::get, "/api/server", [server](const RequestContext&) {
+            return json(http::status::ok,
+                std::string(R"({"server":")") + server + R"("})");
+        });
+
         // Private API — requires an authenticated Admin. The authenticated user
         // is handed to the handler via ctx.user.
         engine.add_api(http::verb::get, "/api/private", [](const RequestContext& ctx) {
