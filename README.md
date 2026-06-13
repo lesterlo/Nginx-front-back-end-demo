@@ -18,24 +18,21 @@ docker compose up --build poc-lighttpd   # lighttpd only (the lighter proxy for 
 # How to build in local
 
 ```bash
-# Install the required library
+# Install the required system libraries
 sudo apt-get install -y clangd cmake git libboost-dev libssl-dev
-
-# Install the Glaze headers and CMake package.
-git clone --depth 1 --branch v7.7.1 \
-    https://github.com/stephenberry/glaze.git /tmp/glaze
-cmake -S /tmp/glaze -B /tmp/glaze-build \
-    -Dglaze_BUILD_EXAMPLES=OFF \
-    -Dglaze_DEVELOPER_MODE=OFF
-sudo cmake --install /tmp/glaze-build --prefix /usr/local
 ```
 
 ```bash
 # Build it (run from the backend/ directory)
 cd backend
-cmake -B build && cmake --build build --config Release
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
 # produces:  build/libwebengine.a  (the library)  and  build/backend  (the example app)
 ```
+
+CMake uses an existing Glaze package when one is provided by the build
+environment, as in Docker or Yocto. Otherwise, local builds automatically fetch
+Glaze 7.7.1 into `backend/build/_deps`; nothing is installed into `/usr/local`.
 
 
 
