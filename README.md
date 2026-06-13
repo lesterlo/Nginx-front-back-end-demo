@@ -19,7 +19,15 @@ docker compose up --build poc-lighttpd   # lighttpd only (the lighter proxy for 
 
 ```bash
 # Install the required library
-sudo apt-get install -y clangd libboost-dev libssl-dev
+sudo apt-get install -y clangd cmake git libboost-dev libssl-dev
+
+# Install the Glaze headers and CMake package.
+git clone --depth 1 --branch v7.7.1 \
+    https://github.com/stephenberry/glaze.git /tmp/glaze
+cmake -S /tmp/glaze -B /tmp/glaze-build \
+    -Dglaze_BUILD_EXAMPLES=OFF \
+    -Dglaze_DEVELOPER_MODE=OFF
+sudo cmake --install /tmp/glaze-build --prefix /usr/local
 ```
 
 ```bash
