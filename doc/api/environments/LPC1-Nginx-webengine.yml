@@ -1,4 +1,4 @@
-name: Accuenergy-LPC1
+name: LPC1-Nginx-webengine
 variables:
   - name: ipAddr
     value: 192.168.61.63
